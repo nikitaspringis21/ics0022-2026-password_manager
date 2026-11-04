@@ -10,6 +10,10 @@ from __future__ import annotations
 
 
 def zero(buf: bytearray) -> None:
-    """Overwrite a bytearray in place with zeros."""
-    for i in range(len(buf)):
-        buf[i] = 0
+    """Overwrite a bytearray in place with zeros.
+
+    Only meaningful on the *original* buffer: `zero(bytearray(x))` wipes
+    a fresh copy and leaves `x` untouched, so callers must keep secrets
+    in a bytearray from the start and pass that same object here.
+    """
+    buf[:] = bytes(len(buf))

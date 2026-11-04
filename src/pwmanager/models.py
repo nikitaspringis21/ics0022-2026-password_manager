@@ -32,4 +32,6 @@ class Entry:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Entry":
-        return cls(**data)
+        # Ignore unknown keys so a newer vault version doesn't crash this one.
+        known = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in data.items() if k in known})

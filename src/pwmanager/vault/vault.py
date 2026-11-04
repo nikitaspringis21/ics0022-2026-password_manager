@@ -18,7 +18,7 @@ VAULT_FORMAT_VERSION = 1
 
 
 class VaultError(Exception):
-    pass
+    """User-facing vault error. Messages must never contain secrets."""
 
 
 @dataclass
@@ -28,6 +28,10 @@ class Vault:
     # -- entry operations -------------------------------------------------
 
     def add_entry(self, entry: Entry) -> None:
+        if not entry.title.strip():
+            raise VaultError("Entry title must not be empty.")
+        if not entry.password:
+            raise VaultError("Entry password must not be empty.")
         if any(e.title == entry.title for e in self.entries):
             raise VaultError(f"An entry titled {entry.title!r} already exists.")
         self.entries.append(entry)
@@ -51,8 +55,13 @@ class Vault:
 
     @classmethod
     def from_bytes(cls, data: bytes) -> "Vault":
-        payload = json.loads(data.decode("utf-8"))
-        return cls(entries=[Entry.from_dict(d) for d in payload["entries"]])
+        try:
+            payload = json.loads(data.decode("utf-8"))
+            return cls(entries=[Entry.from_dict(d) for d in payload["entries"]])
+        except (ValueError, KeyError, TypeError) as exc:
+            # Only reachable if the plaintext authenticated but has an
+            # unexpected shape (e.g. written by an incompatible version).
+            raise VaultError("Vault contents are not in the expected format.") from exc
 
     # -- seal / unseal (crypto boundary) -----------------------------------
 
@@ -76,16 +85,34 @@ class Vault:
     @classmethod
     def unseal(cls, key: bytes, envelope: dict) -> "Vault":
         """Decrypt an on-disk envelope back into a Vault."""
-        if envelope.get("version") != VAULT_FORMAT_VERSION:
-            raise VaultError(f"Unsupported vault version: {envelope.get('version')!r}")
-        header = {"version": envelope["version"], "kdf": envelope["kdf"]}
+        header, blob = parse_envelope(envelope)
         aad = json.dumps(header, sort_keys=True).encode("utf-8")
-        blob = cipher.SealedBlob(
-            nonce=_b64d(envelope["cipher"]["nonce"]),
-            ciphertext=_b64d(envelope["ciphertext"]),
-        )
-        plaintext = cipher.unseal(key, blob, aad)
+        plaintext = cipher.unseal(key, blob, aad)  # DecryptionError on wrong key / tampering
         return cls.from_bytes(plaintext)
+
+
+def parse_envelope(envelope: dict) -> tuple[dict, cipher.SealedBlob]:
+    """Structurally validate an on-disk envelope *before* any crypto runs.
+
+    Returns the header (used as AAD) and the sealed blob. Raises
+    VaultError with a generic message on any malformed input, so a
+    corrupted or hand-edited file never produces a raw traceback.
+    """
+    if not isinstance(envelope, dict):
+        raise VaultError("Vault file is not a valid vault (unexpected structure).")
+    if envelope.get("version") != VAULT_FORMAT_VERSION:
+        raise VaultError("Unsupported or missing vault format version.")
+    try:
+        header = {"version": envelope["version"], "kdf": envelope["kdf"]}
+        if envelope["cipher"]["algorithm"] != "AES-256-GCM":
+            raise VaultError("Unsupported cipher in vault file.")
+        nonce = _b64d(envelope["cipher"]["nonce"])
+        ciphertext = _b64d(envelope["ciphertext"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise VaultError("Vault file is corrupted (missing or malformed fields).") from exc
+    if len(nonce) != cipher.NONCE_LEN or len(ciphertext) < 16:  # 16 = GCM tag
+        raise VaultError("Vault file is corrupted (bad nonce or ciphertext length).")
+    return header, cipher.SealedBlob(nonce=nonce, ciphertext=ciphertext)
 
 
 def _b64(data: bytes) -> str:
@@ -97,4 +124,4 @@ def _b64(data: bytes) -> str:
 def _b64d(data: str) -> bytes:
     import base64
 
-    return base64.b64decode(data)
+    return base64.b64decode(data, validate=True)
