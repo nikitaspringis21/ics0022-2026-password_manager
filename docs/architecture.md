@@ -1,4 +1,4 @@
-# Architecture — Checkpoint 1
+# Architecture (updated for Checkpoint 2)
 
 ## 1. Overview
 
@@ -13,7 +13,7 @@ sees plaintext.
 ```mermaid
 flowchart TB
     subgraph Interface["Interface Layer (cli.py)"]
-        CLI[CLI commands: init, unlock, add, get, list, delete, lock]
+        CLI[CLI commands: init, add, get, show, list, delete]
     end
 
     subgraph UserMgmt["User Management Module"]
@@ -60,7 +60,7 @@ knowledge of files, CLI, or the shape of a password entry.
 **Design rule:** the crypto module operates purely on `bytes` in and
 `bytes` out. It is unit-testable without ever touching a vault file.
 
-### 2.2 User management module (`pwmanager/vault/session.py`, planned)
+### 2.2 User management module (`pwmanager/vault/session.py`)
 
 Responsible for master-password handling and session state:
 
@@ -71,7 +71,9 @@ Responsible for master-password handling and session state:
 - Holding the *derived key* (not the password) in memory for the duration
   of an unlocked session.
 - Enforcing lock/auto-lock and clearing the key from memory on lock/exit.
-
+- Master-password policy at `init`; up to 3 unlock attempts per command.
+- Single choke point for secret input (`prompt_secret`), which the CLI
+  also uses for entry passwords, so tests can script it.
 ### 2.3 Vault module (`pwmanager/vault/vault.py`)
 
 The domain layer: a `Vault` holds a list of `Entry` objects
@@ -118,6 +120,7 @@ password-manager/
 │   ├── architecture.md
 │   ├── threat-model.md
 │   └── design-decisions.md
+│   └── progress-checkpoint2.md
 ├── src/pwmanager/
 │   ├── __init__.py
 │   ├── models.py            # Entry dataclass
@@ -131,7 +134,11 @@ password-manager/
 │   │   └── file_storage.py  # atomic, permissioned file I/O
 │   └── cli.py                # argparse entry point
 └── tests/
+    ├── conftest.py           # fast KDF params, scripted prompts
     ├── test_kdf.py
     ├── test_cipher.py
-    └── test_vault_roundtrip.py
+    ├── test_vault_roundtrip.py
+    ├── test_session.py       # master password authentication
+    ├── test_storage.py
+    └── test_cli.py           # incl. "never prints a password" check
 ```

@@ -5,4 +5,6 @@ venv/
 *.egg-info/
 .pytest_cache/
 vault.json
+*.vault.json
+.vault-*.tmp
 .env

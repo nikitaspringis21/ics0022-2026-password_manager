@@ -1,4 +1,4 @@
-# Initial Design Decisions — Checkpoint 1
+# Design Decisions (updated for Checkpoint 2).
 
 These are starting points for Checkpoint 1, chosen for being
 well-vetted, boring, and easy to justify — not novel. They can be
@@ -70,12 +70,28 @@ everything on unlock is not a performance concern. Per-entry encryption
 (so a search doesn't require decrypting everything) is listed as a
 possible future iteration once the basic scheme is reviewed.
 
-## 3. Open questions for the next checkpoint
+## 3. Decisions made in Checkpoint 2
+
+- **No cleartext display at all.** `get --show` was removed; `get` is
+  clipboard-only with a 20 s auto-clear and `show` masks the password.
+  Rationale: the assignment requires that the interface never prints
+  passwords, and an opt-in flag still ends up in scrollback and screen
+  recordings.
+- **KDF parameter bounds** (19 MiB–4 GiB memory, t 1–20, p 1–16) are
+  enforced when loading a vault, because the header is only
+  authenticated after the expensive derivation (threat S7).
+- **Unlock retries:** 3 attempts per command. Each attempt already costs a
+  full Argon2id derivation, so no extra delay is added.
+- **Clipboard clear is synchronous** (the command waits). A detached
+  background clearer would need the password passed to a child process;
+  doing that without argv/env leakage is deferred.
+
+## 4. Open questions for the next checkpoint
 
 - Exact Argon2id parameter tuning on real target hardware.
-- Auto-lock timeout value and whether to support a short-lived unlocked
-  daemon (would reopen the "long-lived key in memory" tradeoffs in the
-  threat model).
+- Whether to support a short-lived unlocked daemon (would reopen the
+  "long-lived key in memory" tradeoffs in the threat model). The
+  process-per-command model currently makes auto-lock implicit.
 - Whether to add an optional password-strength check for stored entries
   themselves, not just the master password.
 - Backup/export format (would need its own threat model).

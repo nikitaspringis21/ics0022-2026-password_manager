@@ -1,4 +1,4 @@
-# Threat Model — Checkpoint 1
+# Threat Model (updated for Checkpoint 2)
 
 Scope: a single-user, offline, local CLI password manager. Out of scope
 for this checkpoint: multi-device sync, network attacks, and malicious
@@ -46,6 +46,7 @@ interface), each with an intended mitigation and residual risk.
 | S4 | Other local users / processes reading the file | File created with `0600` permissions (owner read/write only) at rest |
 | S5 | Crash or power loss during save corrupts the vault | Atomic write: write to temp file, `fsync`, then `os.replace()` over the original |
 | S6 | Salt or KDF parameters tampered with to weaken future key derivation | KDF parameters and salt are covered by the GCM authentication tag (AAD), so tampering is detected on next unlock |
+| S7 | Attacker edits KDF parameters to absurd values (e.g. 100 GB memory) so the unlock exhausts RAM/CPU *before* the AAD check can run | KDF parameters are range-checked before derivation (19 MiB–4 GiB, t 1–20, p 1–16, 16-byte salt); malformed envelopes rejected before any crypto |
 
 ## 3. Vault-in-memory threats
 
@@ -59,17 +60,23 @@ interface), each with an intended mitigation and residual risk.
 
 | # | Threat | Mitigation |
 |---|--------|------------|
-| I1 | Password printed to stdout and captured by terminal scrollback/logging/screen-recorders | `get` copies the password to the clipboard instead of printing it by default; printing requires an explicit `--show` flag |
+| I1 | Password printed to stdout and captured by terminal scrollback/logging/screen-recorders | No command prints a stored password. `get` copies to the clipboard only (the Checkpoint 1 `--show` flag was removed in Checkpoint 2); `show` masks the password; if no clipboard exists, `get` fails rather than printing |
 | I2 | Password left on the clipboard indefinitely, readable by other apps | Clipboard is cleared automatically after a short timeout (e.g. 20s) after a `get` |
 | I3 | Sensitive data written to application logs or error/debug output | No plaintext secret is ever passed to a logging call; exceptions are caught and re-raised with generic messages before any logging layer |
 | I4 | Command-line arguments containing secrets visible via `ps`/process list | No command accepts a password or secret value as a CLI argument; all secret input goes through interactive prompts |
 | I5 | Malicious/careless entry data (e.g. a "note" containing shell metacharacters) causing injection if ever templated into a shell command | Entries are only ever passed to `subprocess` clipboard calls as argument lists (no `shell=True`), never interpolated into a shell string |
+| I6 | Terminal escape sequences stored in a title/note (e.g. `\x1b[2J`) manipulate the terminal when displayed | All vault-sourced text is sanitised (non-printable characters replaced) before printing |
 
-## Explicitly out of scope / accepted risk for Checkpoint 1
+## Implementation status (Checkpoint 2)
 
-- A fully compromised OS/kernel (keyloggers with root, malicious kernel
-  modules) — cannot be defended from userspace.
-- Multi-device sync and any associated transport security — no such
-  feature exists yet.
-- Physical attacks with unlimited time and forensic tooling against
-  memory (cold boot attacks) — noted, not mitigated in v1.
+| Threat | Status |
+|---|---|
+| M1, M3, M4, S1–S7, I1, I3–I6 | Implemented and covered by tests |
+| M2 | Basic policy implemented (≥ 12 chars, not repetitive); zxcvbn estimator planned |
+| I2 | Implemented (default 20 s, Ctrl+C clears immediately) |
+| V1 | Partially implemented: master password and key held in `bytearray` and zeroed; `str` copies remain (accepted limitation) |
+| V2 | Planned (core dumps / `mlock`) |
+| V3 | Implemented (process-per-command; key wiped in `finally`) |
+| M5 | N/A (no network service) |
+
+## Explicitly out of scope / accepted risk
